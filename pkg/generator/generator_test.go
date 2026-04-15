@@ -256,6 +256,17 @@ func TestManifestQuality(t *testing.T) {
 		assertContains(t, yaml, "app.kubernetes.io/name: example-deployment")
 	})
 
+	t.Run("name override updates selector matchLabels to match template labels", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := gen.Generate("Deployment", map[string]string{"name": "my-app"}, &buf); err != nil {
+			t.Fatalf("Generate(Deployment) with name override failed: %v", err)
+		}
+		yaml := buf.String()
+		assertContains(t, yaml, "name: my-app")
+		assertContains(t, yaml, "app.kubernetes.io/name: my-app")
+		assertNotContains(t, yaml, "app.kubernetes.io/name: example-deployment")
+	})
+
 	t.Run("Deployment template has no pod-level resources", func(t *testing.T) {
 		yaml := generateYAML(t, "Deployment")
 		lines := strings.Split(yaml, "\n")
@@ -822,6 +833,187 @@ func TestAliasResolution(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOverrideEdgeCases(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	genYAML := func(t *testing.T, kind string, overrides map[string]string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := gen.Generate(kind, overrides, &buf); err != nil {
+			t.Fatalf("Generate(%s) failed: %v", kind, err)
+		}
+		return buf.String()
+	}
+
+	t.Run("image override propagates to container in each workload type", func(t *testing.T) {
+		kinds := []string{"Deployment", "Pod", "Job", "CronJob", "StatefulSet", "DaemonSet"}
+		for _, kind := range kinds {
+			t.Run(kind, func(t *testing.T) {
+				yaml := genYAML(t, kind, map[string]string{"image": "redis:7-alpine"})
+				assertContains(t, yaml, "image: \"redis:7-alpine\"")
+				assertNotContains(t, yaml, "nginx:latest")
+			})
+		}
+	})
+
+	t.Run("replicas override works for Deployment and StatefulSet", func(t *testing.T) {
+		for _, kind := range []string{"Deployment", "StatefulSet"} {
+			t.Run(kind+" replicas=1", func(t *testing.T) {
+				yaml := genYAML(t, kind, map[string]string{"replicas": "1"})
+				assertContains(t, yaml, "replicas: 1")
+			})
+			t.Run(kind+" replicas=3", func(t *testing.T) {
+				yaml := genYAML(t, kind, map[string]string{"replicas": "3"})
+				assertContains(t, yaml, "replicas: 3")
+			})
+		}
+	})
+
+	t.Run("replicas=0 produces replicas: 0", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"replicas": "0"})
+		assertContains(t, yaml, "replicas: 0")
+	})
+
+	t.Run("replicas with non-numeric string falls through as raw string", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"replicas": "notanumber"})
+		assertContains(t, yaml, "replicas: notanumber")
+	})
+
+	t.Run("replicas with integer string parses as int not quoted string", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"replicas": "5"})
+		assertContains(t, yaml, "replicas: 5")
+		assertNotContains(t, yaml, "replicas: \"5\"")
+	})
+
+	t.Run("unknown override key is silently ignored", func(t *testing.T) {
+		withOverride := genYAML(t, "Deployment", map[string]string{"nonexistent": "value"})
+		withoutOverride := genYAML(t, "Deployment", map[string]string{})
+		assertNotContains(t, withOverride, "nonexistent")
+		if withOverride != withoutOverride {
+			t.Errorf("unknown override should not change output\nwith override:\n%s\nwithout:\n%s", withOverride, withoutOverride)
+		}
+	})
+
+	t.Run("empty override map produces same output as nil overrides", func(t *testing.T) {
+		yamlEmpty := genYAML(t, "Deployment", map[string]string{})
+		var buf bytes.Buffer
+		if err := gen.Generate("Deployment", nil, &buf); err != nil {
+			t.Fatalf("Generate with nil overrides failed: %v", err)
+		}
+		yamlNil := buf.String()
+		if yamlEmpty != yamlNil {
+			t.Errorf("empty map and nil overrides should produce identical output\nempty:\n%s\nnil:\n%s", yamlEmpty, yamlNil)
+		}
+	})
+
+	t.Run("empty string name override produces empty name", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"name": ""})
+		assertContains(t, yaml, "name: \"\"")
+	})
+
+	t.Run("name with special characters works fine", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"name": "my-app-v2.0"})
+		assertContains(t, yaml, "name: my-app-v2.0")
+		assertContains(t, yaml, "app.kubernetes.io/name: my-app-v2.0")
+	})
+
+	t.Run("CronJob image override reaches nested container in jobTemplate", func(t *testing.T) {
+		yaml := genYAML(t, "CronJob", map[string]string{"image": "curl:8.5"})
+		assertContains(t, yaml, "image: \"curl:8.5\"")
+		assertNotContains(t, yaml, "nginx:latest")
+		assertContains(t, yaml, "jobTemplate:")
+	})
+
+	t.Run("set-style override for StatefulSet serviceName applies via schema walk", func(t *testing.T) {
+		yaml := genYAML(t, "StatefulSet", map[string]string{"serviceName": "my-svc"})
+		assertContains(t, yaml, "serviceName: my-svc")
+	})
+}
+
+func TestOverridePriority(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	genYAML := func(t *testing.T, kind string, overrides map[string]string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := gen.Generate(kind, overrides, &buf); err != nil {
+			t.Fatalf("Generate(%s) failed: %v", kind, err)
+		}
+		return buf.String()
+	}
+
+	t.Run("multiple overrides combined: name, image, replicas", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{
+			"name":     "web",
+			"image":    "nginx:latest",
+			"replicas": "3",
+		})
+		assertContains(t, yaml, "name: web")
+		assertContains(t, yaml, "app.kubernetes.io/name: web")
+		assertContains(t, yaml, "image: \"nginx:latest\"")
+		assertContains(t, yaml, "replicas: 3")
+		assertNotContains(t, yaml, "example-deployment")
+	})
+
+	t.Run("name override affects metadata and template labels and selector", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"name": "frontend"})
+		assertContains(t, yaml, "name: frontend")
+		assertContains(t, yaml, "app.kubernetes.io/name: frontend")
+		assertContains(t, yaml, "matchLabels:")
+		assertNotContains(t, yaml, "example-deployment")
+	})
+
+	t.Run("image override replaces default nginx for Deployment", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{"image": "python:3.12-slim"})
+		assertContains(t, yaml, "image: \"python:3.12-slim\"")
+		assertNotContains(t, yaml, "nginx:latest")
+	})
+
+	t.Run("name and image combined in StatefulSet", func(t *testing.T) {
+		yaml := genYAML(t, "StatefulSet", map[string]string{
+			"name":  "db",
+			"image": "postgres:16",
+		})
+		assertContains(t, yaml, "name: db")
+		assertContains(t, yaml, "app.kubernetes.io/name: db")
+		assertContains(t, yaml, "image: \"postgres:16\"")
+	})
+
+	t.Run("name and image combined in DaemonSet", func(t *testing.T) {
+		yaml := genYAML(t, "DaemonSet", map[string]string{
+			"name":  "log-collector",
+			"image": "fluentd:v1.17",
+		})
+		assertContains(t, yaml, "name: log-collector")
+		assertContains(t, yaml, "app.kubernetes.io/name: log-collector")
+		assertContains(t, yaml, "image: \"fluentd:v1.17\"")
+		assertNotContains(t, yaml, "example-daemonset")
+	})
+
+	t.Run("overrides with unknown keys mixed in are partially applied", func(t *testing.T) {
+		yaml := genYAML(t, "Deployment", map[string]string{
+			"name":        "partial",
+			"nonexistent": "ignored",
+			"replicas":    "2",
+		})
+		assertContains(t, yaml, "name: partial")
+		assertContains(t, yaml, "replicas: 2")
+		assertNotContains(t, yaml, "nonexistent")
+		assertNotContains(t, yaml, "ignored")
+	})
+
+	t.Run("CronJob combined name and image override", func(t *testing.T) {
+		yaml := genYAML(t, "CronJob", map[string]string{
+			"name":  "nightly-backup",
+			"image": "aws-cli:2.15",
+		})
+		assertContains(t, yaml, "name: nightly-backup")
+		assertContains(t, yaml, "app.kubernetes.io/name: nightly-backup")
+		assertContains(t, yaml, "image: \"aws-cli:2.15\"")
+		assertNotContains(t, yaml, "example-cronjob")
+	})
 }
 
 func newTestGenerator(t *testing.T) ResourceGenerator {

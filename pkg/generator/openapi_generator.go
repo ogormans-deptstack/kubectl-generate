@@ -348,6 +348,8 @@ func (g *OpenAPIGenerator) setContainerImage(spec map[string]any, image string) 
 }
 
 func (g *OpenAPIGenerator) injectTemplateLabels(spec map[string]any, name string) {
+	label := map[string]any{"app.kubernetes.io/name": name}
+
 	injectLabels := func(tmpl map[string]any) {
 		md, ok := tmpl["metadata"].(map[string]any)
 		if !ok {
@@ -357,13 +359,23 @@ func (g *OpenAPIGenerator) injectTemplateLabels(spec map[string]any, name string
 		md["labels"] = map[string]any{"app.kubernetes.io/name": name}
 	}
 
+	injectMatchLabels := func(parent map[string]any) {
+		if sel, ok := parent["selector"].(map[string]any); ok {
+			if _, ok := sel["matchLabels"]; ok {
+				sel["matchLabels"] = label
+			}
+		}
+	}
+
 	if tmpl, ok := spec["template"].(map[string]any); ok {
 		injectLabels(tmpl)
+		injectMatchLabels(spec)
 	}
 	if jt, ok := spec["jobTemplate"].(map[string]any); ok {
 		if jtSpec, ok := jt["spec"].(map[string]any); ok {
 			if tmpl, ok := jtSpec["template"].(map[string]any); ok {
 				injectLabels(tmpl)
+				injectMatchLabels(jtSpec)
 			}
 		}
 	}
@@ -603,6 +615,9 @@ func isExcludedField(name string, depth int) bool {
 		"command":                    true,
 		"args":                       true,
 		"workingdir":                 true,
+		"restartpolicyrules":         true,
+		"workloadref":                true,
+		"podgroup":                   true,
 	}
 	return excluded[lower]
 }

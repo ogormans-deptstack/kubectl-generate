@@ -16,12 +16,13 @@ import (
 var version = "dev"
 
 type options struct {
-	list       bool
-	name       string
-	image      string
-	replicas   int
-	set        []string
-	kubeconfig string
+	list        bool
+	name        string
+	image       string
+	replicas    int
+	replicasSet bool
+	set         []string
+	kubeconfig  string
 }
 
 func main() {
@@ -46,6 +47,7 @@ The generated manifest includes sensible defaults and can be piped directly to k
 		SilenceErrors: true,
 		Version:       version,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.replicasSet = cmd.Flags().Changed("replicas")
 			return runGenerate(args, &opts)
 		},
 	}
@@ -91,7 +93,7 @@ func collectOverrides(opts *options) map[string]string {
 	if opts.image != "" {
 		overrides["image"] = opts.image
 	}
-	if opts.replicas > 0 {
+	if opts.replicasSet {
 		overrides["replicas"] = fmt.Sprintf("%d", opts.replicas)
 	}
 	for _, s := range opts.set {
