@@ -182,11 +182,17 @@ func (g *OpenAPIGenerator) walkSchema(schema map[string]any, kind string, depth 
 			}
 		}
 
+		if !isRequired && hasOneOf(fieldMap) {
+			continue
+		}
+
 		val := g.generateValue(fieldName, resolvedField, kind, depth)
 		if val != nil {
 			result[fieldName] = val
 		}
 	}
+
+	g.resolveDiscriminatedUnions(result, props, resolved, kind, depth)
 
 	if len(result) == 0 {
 		return nil
@@ -259,6 +265,16 @@ func (g *OpenAPIGenerator) generateValue(fieldName string, schema map[string]any
 		}
 		if v, ok := defaults.FieldDefault(fieldName, kind); ok {
 			return v
+		}
+		if v, ok := schemaDefault(schema); ok {
+			return v
+		}
+		if schemaType == "string" {
+			if pattern, ok := schema["pattern"].(string); ok {
+				if v := generatePatternExample(pattern); v != "" {
+					return v
+				}
+			}
 		}
 		if enums := schemaEnums(schema); len(enums) > 0 {
 			return enums[0]
@@ -642,4 +658,84 @@ func schemaEnums(schema map[string]any) []string {
 		}
 	}
 	return result
+}
+
+func generatePatternExample(pattern string) string {
+	if strings.Contains(pattern, "\\/") || strings.Contains(pattern, "/") {
+		return "example.com/example"
+	}
+	return ""
+}
+
+func schemaDefault(schema map[string]any) (any, bool) {
+	val, ok := schema["default"]
+	return val, ok
+}
+
+func hasOneOf(schema map[string]any) bool {
+	if _, ok := schema["oneOf"]; ok {
+		return true
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		if _, ok := items["oneOf"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *OpenAPIGenerator) resolveDiscriminatedUnions(result map[string]any, props map[string]any, parentSchema map[string]any, kind string, depth int) {
+	typeVal, ok := result["type"].(string)
+	if !ok {
+		return
+	}
+
+	typeRequired := false
+	for _, r := range openapi.RequiredFields(parentSchema) {
+		if r == "type" {
+			typeRequired = true
+			break
+		}
+	}
+	if !typeRequired {
+		return
+	}
+
+	siblingName := lowerFirst(typeVal)
+	if _, alreadyPresent := result[siblingName]; alreadyPresent {
+		return
+	}
+
+	siblingSchema, ok := props[siblingName].(map[string]any)
+	if !ok {
+		return
+	}
+
+	resolved, err := openapi.ResolveSchema(g.doc.Raw(), siblingSchema)
+	if err != nil {
+		return
+	}
+
+	siblingType := openapi.SchemaType(resolved)
+	switch siblingType {
+	case "object":
+		val := g.generateValue(siblingName, resolved, kind, depth)
+		if val != nil {
+			result[siblingName] = val
+			return
+		}
+		result[siblingName] = map[string]any{}
+	case "string":
+		val := g.generateValue(siblingName, resolved, kind, depth)
+		if val != nil {
+			result[siblingName] = val
+		}
+	}
+}
+
+func lowerFirst(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }

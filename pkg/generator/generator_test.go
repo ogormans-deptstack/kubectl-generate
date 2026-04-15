@@ -112,6 +112,46 @@ func TestGenerateYAML(t *testing.T) {
 			overrides:        map[string]string{"cronSpec": "*/10 * * * *", "image": "busybox:1.36"},
 			expectedContains: []string{"cronSpec: \"*/10 * * * *\"", "image: \"busybox:1.36\""},
 		},
+		{
+			name:           "HTTPRoute",
+			requiredFields: []string{"kind: HTTPRoute", "metadata:", "spec:", "parentRefs:", "rules:"},
+		},
+		{
+			name:           "Gateway",
+			requiredFields: []string{"kind: Gateway", "metadata:", "spec:", "gatewayClassName:", "listeners:"},
+		},
+		{
+			name:           "GatewayClass",
+			requiredFields: []string{"kind: GatewayClass", "metadata:", "spec:", "controllerName:"},
+		},
+		{
+			name:           "GRPCRoute",
+			requiredFields: []string{"kind: GRPCRoute", "metadata:", "spec:", "parentRefs:", "rules:"},
+		},
+		{
+			name:           "TCPRoute",
+			requiredFields: []string{"kind: TCPRoute", "metadata:", "spec:", "parentRefs:", "rules:"},
+		},
+		{
+			name:           "TLSRoute",
+			requiredFields: []string{"kind: TLSRoute", "metadata:", "spec:", "parentRefs:", "rules:"},
+		},
+		{
+			name:           "UDPRoute",
+			requiredFields: []string{"kind: UDPRoute", "metadata:", "spec:", "parentRefs:", "rules:"},
+		},
+		{
+			name:           "ReferenceGrant",
+			requiredFields: []string{"kind: ReferenceGrant", "metadata:", "spec:", "from:", "to:"},
+		},
+		{
+			name:           "BackendLBPolicy",
+			requiredFields: []string{"kind: BackendLBPolicy", "metadata:", "spec:", "targetRefs:"},
+		},
+		{
+			name:           "BackendTLSPolicy",
+			requiredFields: []string{"kind: BackendTLSPolicy", "metadata:", "spec:", "targetRefs:", "validation:"},
+		},
 	}
 
 	gen := newTestGenerator(t)
@@ -476,6 +516,133 @@ func TestCRDSingularize(t *testing.T) {
 			t.Fatalf("Generate(CRONTAB) failed: %v", err)
 		}
 		assertContains(t, buf.String(), "kind: CronTab")
+	})
+}
+
+func TestGatewayAPIManifestQuality(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	generateYAML := func(t *testing.T, kind string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := gen.Generate(kind, map[string]string{}, &buf); err != nil {
+			t.Fatalf("Generate(%s) failed: %v", kind, err)
+		}
+		return buf.String()
+	}
+
+	t.Run("GatewayClass controllerName has domain/path format", func(t *testing.T) {
+		yaml := generateYAML(t, "GatewayClass")
+		lines := strings.Split(yaml, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "controllerName:") {
+				val := strings.TrimPrefix(trimmed, "controllerName: ")
+				val = strings.Trim(val, "\"")
+				if !strings.Contains(val, "/") {
+					t.Errorf("controllerName should be domain/path format, got %q", val)
+				}
+				return
+			}
+		}
+		t.Fatal("GatewayClass missing controllerName field")
+	})
+
+	t.Run("Gateway does not include addresses (optional, complex validation)", func(t *testing.T) {
+		yaml := generateYAML(t, "Gateway")
+		assertNotContains(t, yaml, "addresses:")
+	})
+
+	t.Run("Gateway listeners have required fields", func(t *testing.T) {
+		yaml := generateYAML(t, "Gateway")
+		assertContains(t, yaml, "listeners:")
+		assertContains(t, yaml, "port:")
+		assertContains(t, yaml, "protocol:")
+	})
+
+	t.Run("HTTPRoute filters include sibling when type is discriminated", func(t *testing.T) {
+		yaml := generateYAML(t, "HTTPRoute")
+		if strings.Contains(yaml, "type: RequestHeaderModifier") {
+			assertContains(t, yaml, "requestHeaderModifier:")
+		}
+		if strings.Contains(yaml, "type: ResponseHeaderModifier") {
+			assertContains(t, yaml, "responseHeaderModifier:")
+		}
+	})
+
+	t.Run("HTTPRoute has parentRefs with name", func(t *testing.T) {
+		yaml := generateYAML(t, "HTTPRoute")
+		assertContains(t, yaml, "parentRefs:")
+		assertContains(t, yaml, "name:")
+	})
+
+	t.Run("HTTPRoute rules have backendRefs", func(t *testing.T) {
+		yaml := generateYAML(t, "HTTPRoute")
+		assertContains(t, yaml, "backendRefs:")
+	})
+
+	t.Run("BackendTLSPolicy subjectAltNames item includes hostname when type is Hostname", func(t *testing.T) {
+		yaml := generateYAML(t, "BackendTLSPolicy")
+		sanIdx := strings.Index(yaml, "subjectAltNames:")
+		if sanIdx < 0 {
+			return
+		}
+		sanSection := yaml[sanIdx:]
+		if strings.Contains(sanSection, "type: Hostname") {
+			if !strings.Contains(sanSection, "hostname:") {
+				t.Errorf("subjectAltNames item with type: Hostname must include hostname field\nsubjectAltNames section:\n%s", sanSection)
+			}
+		}
+	})
+
+	t.Run("TCPRoute passes dry-run structure", func(t *testing.T) {
+		yaml := generateYAML(t, "TCPRoute")
+		assertContains(t, yaml, "parentRefs:")
+		assertContains(t, yaml, "rules:")
+		assertContains(t, yaml, "backendRefs:")
+	})
+
+	t.Run("ReferenceGrant has from and to", func(t *testing.T) {
+		yaml := generateYAML(t, "ReferenceGrant")
+		assertContains(t, yaml, "from:")
+		assertContains(t, yaml, "to:")
+	})
+}
+
+func TestSchemaDefaults(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	generateYAML := func(t *testing.T, kind string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := gen.Generate(kind, map[string]string{}, &buf); err != nil {
+			t.Fatalf("Generate(%s) failed: %v", kind, err)
+		}
+		return buf.String()
+	}
+
+	t.Run("schema default values are used over type defaults", func(t *testing.T) {
+		yaml := generateYAML(t, "GatewayClass")
+		assertContains(t, yaml, "controllerName:")
+		if strings.Contains(yaml, "controllerName: example\n") {
+			t.Errorf("controllerName should not be generic 'example' - schema has pattern constraint\nyaml:\n%s", yaml)
+		}
+	})
+}
+
+func TestPatternAwareDefaults(t *testing.T) {
+	t.Run("generates domain/path for slash patterns", func(t *testing.T) {
+		result := generatePatternExample("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\\/[A-Za-z0-9\\/\\-._~%!$&'()*+,;=:]+$")
+		if !strings.Contains(result, "/") {
+			t.Errorf("pattern with slash should produce domain/path value, got %q", result)
+		}
+	})
+
+	t.Run("returns empty for non-slash patterns", func(t *testing.T) {
+		result := generatePatternExample("^[a-z0-9]+$")
+		if result != "" {
+			t.Errorf("simple pattern should return empty (let other defaults handle it), got %q", result)
+		}
 	})
 }
 

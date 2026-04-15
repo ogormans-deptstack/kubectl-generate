@@ -80,11 +80,19 @@ func writeYAML(buf *bytes.Buffer, val any, indent int, inArray bool) {
 func writeMapValue(buf *bytes.Buffer, val any, indent int) {
 	switch v := val.(type) {
 	case map[string]any:
-		buf.WriteByte('\n')
-		writeYAML(buf, v, indent+1, false)
+		if len(v) == 0 {
+			buf.WriteString(" {}\n")
+		} else {
+			buf.WriteByte('\n')
+			writeYAML(buf, v, indent+1, false)
+		}
 	case []any:
-		buf.WriteByte('\n')
-		writeYAML(buf, v, indent+1, false)
+		if len(v) == 0 {
+			buf.WriteString(" []\n")
+		} else {
+			buf.WriteByte('\n')
+			writeYAML(buf, v, indent+1, false)
+		}
 	default:
 		buf.WriteByte(' ')
 		writeScalar(buf, v)

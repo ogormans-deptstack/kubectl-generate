@@ -42,6 +42,22 @@ var crdTypes = []struct {
 	{name: "crontab", gvr: "stable.example.com/v1/CronTab", getKind: "crontab"},
 }
 
+var gatewayTypes = []struct {
+	name    string
+	getKind string
+}{
+	{name: "HTTPRoute", getKind: "httproute"},
+	{name: "Gateway", getKind: "gateway"},
+	{name: "GatewayClass", getKind: "gatewayclass"},
+	{name: "GRPCRoute", getKind: "grpcroute"},
+	{name: "TCPRoute", getKind: "tcproute"},
+	{name: "TLSRoute", getKind: "tlsroute"},
+	{name: "UDPRoute", getKind: "udproute"},
+	{name: "ReferenceGrant", getKind: "referencegrant"},
+	{name: "BackendLBPolicy", getKind: "backendlbpolicy"},
+	{name: "BackendTLSPolicy", getKind: "backendtlspolicy"},
+}
+
 func TestGenerateAndCreate(t *testing.T) {
 	binaryPath := findBinary(t)
 	ensureCluster(t)
@@ -214,6 +230,113 @@ func TestCRDDiscovery(t *testing.T) {
 	})
 }
 
+func TestGatewayAPIGenerateAndCreate(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureGatewayCRDs(t)
+
+	for _, rt := range gatewayTypes {
+		t.Run(rt.name, func(t *testing.T) {
+			cleanupResource(t, rt.getKind, strings.ToLower(rt.name))
+
+			t.Run("generates valid YAML", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name)
+				assertValidYAML(t, yaml)
+			})
+
+			t.Run("server dry-run validates", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name)
+				kubectlDryRun(t, yaml)
+			})
+
+			t.Run("creates resource via kubectl apply", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name)
+				kubectlApply(t, yaml)
+				assertResourceExists(t, rt.getKind)
+			})
+		})
+	}
+}
+
+func TestGatewayAPISpecNuances(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureGatewayCRDs(t)
+
+	t.Run("HTTPRoute includes parentRefs", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "HTTPRoute")
+		assertYAMLContains(t, yaml, "parentRefs:")
+	})
+
+	t.Run("HTTPRoute includes rules with backendRefs", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "HTTPRoute")
+		assertYAMLContains(t, yaml, "rules:")
+		assertYAMLContains(t, yaml, "backendRefs:")
+	})
+
+	t.Run("HTTPRoute filter has type and matching sibling", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "HTTPRoute")
+		assertYAMLContains(t, yaml, "filters:")
+		assertYAMLContains(t, yaml, "type: RequestHeaderModifier")
+		assertYAMLContains(t, yaml, "requestHeaderModifier:")
+	})
+
+	t.Run("GatewayClass includes controllerName with domain format", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "GatewayClass")
+		assertYAMLContains(t, yaml, "controllerName: example.com/example")
+	})
+
+	t.Run("Gateway includes listeners", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "Gateway")
+		assertYAMLContains(t, yaml, "listeners:")
+		assertYAMLContains(t, yaml, "gatewayClassName:")
+	})
+
+	t.Run("Gateway has no addresses field", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "Gateway")
+		if strings.Contains(yaml, "addresses:") {
+			t.Error("Gateway should not include addresses (has oneOf)")
+		}
+	})
+
+	t.Run("BackendTLSPolicy includes validation with hostname", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "BackendTLSPolicy")
+		assertYAMLContains(t, yaml, "validation:")
+		assertYAMLContains(t, yaml, "hostname:")
+	})
+
+	t.Run("BackendTLSPolicy subjectAltNames resolves discriminated union", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "BackendTLSPolicy")
+		assertYAMLContains(t, yaml, "subjectAltNames:")
+		assertYAMLContains(t, yaml, "type: Hostname")
+	})
+
+	t.Run("ReferenceGrant has correct apiVersion", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "ReferenceGrant")
+		assertYAMLContains(t, yaml, "apiVersion: gateway.networking.k8s.io/")
+	})
+}
+
+func TestGatewayAPIDiscovery(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureGatewayCRDs(t)
+
+	t.Run("list includes Gateway API types", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "--list")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("--list failed: %v", err)
+		}
+		output := strings.ToLower(string(out))
+		for _, rt := range gatewayTypes {
+			if !strings.Contains(output, strings.ToLower(rt.name)) {
+				t.Errorf("--list output missing Gateway API type: %s\ngot:\n%s", rt.name, string(out))
+			}
+		}
+	})
+}
+
 func TestOpenAPISpecResilience(t *testing.T) {
 	binaryPath := findBinary(t)
 	ensureCluster(t)
@@ -275,6 +398,16 @@ func ensureCRD(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "kubectl", "get", "crd", "crontabs.stable.example.com")
 	if err := cmd.Run(); err != nil {
 		t.Skip("CRD crontabs.stable.example.com not installed; install test CRD first")
+	}
+}
+
+func ensureGatewayCRDs(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "crd", "httproutes.gateway.networking.k8s.io")
+	if err := cmd.Run(); err != nil {
+		t.Skip("Gateway API CRDs not installed; install with: kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml")
 	}
 }
 
@@ -344,6 +477,19 @@ func kubectlDryRun(t *testing.T, yaml string) {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("kubectl create --dry-run=server failed: %v\nstderr: %s\nyaml:\n%s", err, stderr.String(), yaml)
+	}
+}
+
+func kubectlApply(t *testing.T, yaml string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+	cmd.Stdin = strings.NewReader(yaml)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("kubectl apply failed: %v\nstderr: %s\nyaml:\n%s", err, stderr.String(), yaml)
 	}
 }
 
