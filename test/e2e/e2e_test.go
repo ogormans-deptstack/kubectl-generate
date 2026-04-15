@@ -33,6 +33,15 @@ var resourceTypes = []struct {
 	{name: "horizontalpodautoscaler", gvr: "autoscaling/v2/HorizontalPodAutoscaler", getKind: "hpa"},
 }
 
+var crdTypes = []struct {
+	name      string
+	gvr       string
+	getKind   string
+	extraArgs []string
+}{
+	{name: "crontab", gvr: "stable.example.com/v1/CronTab", getKind: "crontab"},
+}
+
 func TestGenerateAndCreate(t *testing.T) {
 	binaryPath := findBinary(t)
 	ensureCluster(t)
@@ -117,6 +126,94 @@ func TestSpecNuances(t *testing.T) {
 	})
 }
 
+func TestCRDGenerateAndCreate(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureCRD(t)
+
+	for _, rt := range crdTypes {
+		t.Run(rt.name, func(t *testing.T) {
+			cleanupResource(t, rt.getKind, rt.name)
+
+			t.Run("generates valid YAML", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
+				assertValidYAML(t, yaml)
+				assertContainsKind(t, yaml, rt.name)
+			})
+
+			t.Run("server dry-run validates", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
+				kubectlDryRun(t, yaml)
+			})
+
+			t.Run("creates resource via kubectl create", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
+				kubectlCreate(t, yaml)
+				assertResourceExists(t, rt.getKind)
+			})
+		})
+	}
+}
+
+func TestCRDSpecNuances(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureCRD(t)
+
+	t.Run("crontab includes required field cronSpec", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab")
+		assertYAMLContains(t, yaml, "cronSpec:")
+	})
+
+	t.Run("crontab includes required field image", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab")
+		assertYAMLContains(t, yaml, "image:")
+	})
+
+	t.Run("crontab includes optional replicas", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab")
+		assertYAMLContains(t, yaml, "replicas:")
+	})
+
+	t.Run("crontab includes restartPolicy enum value", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab")
+		assertYAMLContains(t, yaml, "restartPolicy:")
+	})
+
+	t.Run("crontab has correct apiVersion", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab")
+		assertYAMLContains(t, yaml, "apiVersion: stable.example.com/v1")
+	})
+
+	t.Run("crontab respects --set cronSpec override", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab", "--set", "cronSpec=*/15 * * * *")
+		assertYAMLContains(t, yaml, "cronSpec:")
+	})
+
+	t.Run("crontab respects --image override", func(t *testing.T) {
+		yaml := runExample(t, binaryPath, "crontab", "--image=redis:7")
+		assertYAMLContains(t, yaml, "redis:7")
+	})
+}
+
+func TestCRDDiscovery(t *testing.T) {
+	binaryPath := findBinary(t)
+	ensureCluster(t)
+	ensureCRD(t)
+
+	t.Run("list includes CronTab from CRD", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "--list")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("--list failed: %v", err)
+		}
+		output := strings.ToLower(string(out))
+		if !strings.Contains(output, "crontab") {
+			t.Errorf("--list output missing CRD type CronTab\ngot:\n%s", string(out))
+		}
+	})
+}
+
 func TestOpenAPISpecResilience(t *testing.T) {
 	binaryPath := findBinary(t)
 	ensureCluster(t)
@@ -168,6 +265,16 @@ func ensureCluster(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "kubectl", "cluster-info")
 	if err := cmd.Run(); err != nil {
 		t.Skip("no cluster available; start a kind cluster first")
+	}
+}
+
+func ensureCRD(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "crd", "crontabs.stable.example.com")
+	if err := cmd.Run(); err != nil {
+		t.Skip("CRD crontabs.stable.example.com not installed; install test CRD first")
 	}
 }
 

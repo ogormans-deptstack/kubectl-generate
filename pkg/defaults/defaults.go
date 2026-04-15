@@ -165,6 +165,7 @@ var importantFields = map[string]bool{
 	"port":                 true,
 	"number":               true,
 	"host":                 true,
+	"restartpolicy":        true,
 }
 
 func IsImportantField(fieldName string) bool {

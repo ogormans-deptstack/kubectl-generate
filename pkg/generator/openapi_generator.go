@@ -530,6 +530,15 @@ func isExcludedField(name string, depth int) bool {
 		}
 	}
 
+	if depth >= 1 {
+		deepOnly := map[string]bool{
+			"restartpolicy": true,
+		}
+		if deepOnly[lower] {
+			return true
+		}
+	}
+
 	excluded := map[string]bool{
 		"status":            true,
 		"managedfields":     true,
@@ -575,7 +584,6 @@ func isExcludedField(name string, depth int) bool {
 		"concurrencypolicy":          true,
 		"suspend":                    true,
 		"startingdeadlineseconds":    true,
-		"restartpolicy":              true,
 		"command":                    true,
 		"args":                       true,
 		"workingdir":                 true,

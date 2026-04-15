@@ -100,9 +100,32 @@ func TestGenerateYAML(t *testing.T) {
 		},
 	}
 
+	crdTypes := []struct {
+		name             string
+		requiredFields   []string
+		overrides        map[string]string
+		expectedContains []string
+	}{
+		{
+			name:             "CronTab",
+			requiredFields:   []string{"apiVersion: stable.example.com/v1", "kind: CronTab", "metadata:", "spec:", "cronSpec:", "image:"},
+			overrides:        map[string]string{"cronSpec": "*/10 * * * *", "image": "busybox:1.36"},
+			expectedContains: []string{"cronSpec: \"*/10 * * * *\"", "image: \"busybox:1.36\""},
+		},
+	}
+
 	gen := newTestGenerator(t)
 
-	for _, tc := range coreTypes {
+	allTypes := make([]struct {
+		name             string
+		requiredFields   []string
+		overrides        map[string]string
+		expectedContains []string
+	}, 0, len(coreTypes)+len(crdTypes))
+	allTypes = append(allTypes, coreTypes...)
+	allTypes = append(allTypes, crdTypes...)
+
+	for _, tc := range allTypes {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Run("generates valid YAML with required fields", func(t *testing.T) {
 				var buf bytes.Buffer
@@ -333,6 +356,126 @@ func TestManifestQuality(t *testing.T) {
 		assertContains(t, yaml, "podSelector:")
 		assertContains(t, yaml, "ingress:")
 		assertContains(t, yaml, "egress:")
+	})
+}
+
+func TestCRDManifestQuality(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	generateYAML := func(t *testing.T, kind string) string {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := gen.Generate(kind, map[string]string{}, &buf); err != nil {
+			t.Fatalf("Generate(%s) failed: %v", kind, err)
+		}
+		return buf.String()
+	}
+
+	t.Run("CronTab has required fields cronSpec and image", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "cronSpec:")
+		assertContains(t, yaml, "image:")
+	})
+
+	t.Run("CronTab has optional fields with defaults", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "replicas:")
+		assertContains(t, yaml, "port:")
+	})
+
+	t.Run("CronTab restartPolicy enum is present", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "restartPolicy:")
+	})
+
+	t.Run("CronTab has correct apiVersion and kind", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "apiVersion: stable.example.com/v1")
+		assertContains(t, yaml, "kind: CronTab")
+	})
+
+	t.Run("CronTab metadata has name and labels", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "name: example-crontab")
+		assertContains(t, yaml, "app.kubernetes.io/name: example-crontab")
+	})
+
+	t.Run("CronTab has no status field", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertNotContains(t, yaml, "status:")
+	})
+
+	t.Run("CronTab image gets nginx default like core types", func(t *testing.T) {
+		yaml := generateYAML(t, "CronTab")
+		assertContains(t, yaml, "image: \"nginx:latest\"")
+	})
+}
+
+func TestCRDOverrides(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	t.Run("CronTab cronSpec override", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("CronTab", map[string]string{"cronSpec": "0 */2 * * *"}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(CronTab) failed: %v", err)
+		}
+		yaml := buf.String()
+		assertContains(t, yaml, "cronSpec: \"0 */2 * * *\"")
+	})
+
+	t.Run("CronTab image override", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("CronTab", map[string]string{"image": "redis:7"}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(CronTab) failed: %v", err)
+		}
+		yaml := buf.String()
+		assertContains(t, yaml, "image: \"redis:7\"")
+		assertNotContains(t, yaml, "nginx:latest")
+	})
+
+	t.Run("CronTab replicas override", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("CronTab", map[string]string{"replicas": "5"}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(CronTab) failed: %v", err)
+		}
+		yaml := buf.String()
+		assertContains(t, yaml, "replicas: 5")
+	})
+
+	t.Run("CronTab name override propagates to labels", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("CronTab", map[string]string{"name": "my-cron"}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(CronTab) failed: %v", err)
+		}
+		yaml := buf.String()
+		assertContains(t, yaml, "name: my-cron")
+		assertContains(t, yaml, "app.kubernetes.io/name: my-cron")
+	})
+}
+
+func TestCRDSingularize(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	t.Run("crontab resolves to CronTab", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("crontab", map[string]string{}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(crontab) failed: %v", err)
+		}
+		assertContains(t, buf.String(), "kind: CronTab")
+	})
+
+	t.Run("CronTab resolves case-insensitively", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("CRONTAB", map[string]string{}, &buf)
+		if err != nil {
+			t.Fatalf("Generate(CRONTAB) failed: %v", err)
+		}
+		assertContains(t, buf.String(), "kind: CronTab")
 	})
 }
 
