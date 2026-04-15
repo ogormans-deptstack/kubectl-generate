@@ -104,22 +104,22 @@ func writeScalar(buf *bytes.Buffer, val any) {
 	switch v := val.(type) {
 	case string:
 		if needsQuoting(v) {
-			buf.WriteString(fmt.Sprintf("%q", v))
+			fmt.Fprintf(buf, "%q", v)
 		} else {
 			buf.WriteString(v)
 		}
 	case float64:
 		if v == float64(int64(v)) {
-			buf.WriteString(fmt.Sprintf("%d", int64(v)))
+			fmt.Fprintf(buf, "%d", int64(v))
 		} else {
-			buf.WriteString(fmt.Sprintf("%g", v))
+			fmt.Fprintf(buf, "%g", v)
 		}
 	case bool:
-		buf.WriteString(fmt.Sprintf("%t", v))
+		fmt.Fprintf(buf, "%t", v)
 	case nil:
 		buf.WriteString("null")
 	default:
-		buf.WriteString(fmt.Sprintf("%v", v))
+		fmt.Fprintf(buf, "%v", v)
 	}
 }
 
