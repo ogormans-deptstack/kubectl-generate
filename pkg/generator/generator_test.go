@@ -2,8 +2,13 @@ package generator
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ogormans-deptstack/kubectl-example/pkg/openapi"
 )
 
 func TestResourceGeneratorInterface(t *testing.T) {
@@ -21,8 +26,8 @@ func TestResourceGeneratorInterface(t *testing.T) {
 			"HorizontalPodAutoscaler",
 		}
 		supported := make(map[string]bool)
-		for _, t := range types {
-			supported[t] = true
+		for _, st := range types {
+			supported[st] = true
 		}
 		for _, ct := range coreTypes {
 			if !supported[ct] {
@@ -136,8 +141,88 @@ func TestGenerateYAML(t *testing.T) {
 	}
 }
 
+func TestAliasResolution(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	aliases := map[string]string{
+		"po":     "Pod",
+		"deploy": "Deployment",
+		"svc":    "Service",
+		"cm":     "ConfigMap",
+		"cj":     "CronJob",
+		"ing":    "Ingress",
+		"netpol": "NetworkPolicy",
+		"sts":    "StatefulSet",
+		"ds":     "DaemonSet",
+		"pvc":    "PersistentVolumeClaim",
+		"hpa":    "HorizontalPodAutoscaler",
+	}
+
+	for alias, expectedKind := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := gen.Generate(alias, map[string]string{}, &buf)
+			if err != nil {
+				t.Fatalf("Generate(%s) failed: %v", alias, err)
+			}
+			if !strings.Contains(buf.String(), "kind: "+expectedKind) {
+				t.Errorf("alias %s should generate %s, got:\n%s", alias, expectedKind, buf.String())
+			}
+		})
+	}
+}
+
 func newTestGenerator(t *testing.T) ResourceGenerator {
 	t.Helper()
-	t.Skip("ResourceGenerator implementation not yet available")
-	return nil
+	doc := loadMergedFixture(t)
+	return NewOpenAPIGenerator(doc)
+}
+
+func loadMergedFixture(t *testing.T) *openapi.Document {
+	t.Helper()
+	fixtureDir := filepath.Join("..", "..", "test", "fixtures", "openapi")
+	files, err := os.ReadDir(fixtureDir)
+	if err != nil {
+		t.Skipf("OpenAPI fixtures not found at %s: %v (run tests with a kind cluster first)", fixtureDir, err)
+		return nil
+	}
+
+	merged := map[string]any{
+		"components": map[string]any{
+			"schemas": map[string]any{},
+		},
+	}
+	mergedSchemas := merged["components"].(map[string]any)["schemas"].(map[string]any)
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(fixtureDir, f.Name()))
+		if err != nil {
+			t.Fatalf("read fixture %s: %v", f.Name(), err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("parse fixture %s: %v", f.Name(), err)
+		}
+		components, _ := doc["components"].(map[string]any)
+		if components == nil {
+			continue
+		}
+		schemas, _ := components["schemas"].(map[string]any)
+		for k, v := range schemas {
+			mergedSchemas[k] = v
+		}
+	}
+
+	data, err := json.Marshal(merged)
+	if err != nil {
+		t.Fatalf("marshal merged doc: %v", err)
+	}
+	doc, err := openapi.ParseDocument(data)
+	if err != nil {
+		t.Fatalf("parse merged doc: %v", err)
+	}
+	return doc
 }

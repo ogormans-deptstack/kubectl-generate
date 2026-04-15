@@ -80,6 +80,45 @@ func (f *SchemaFetcher) ListGVKs() ([]GVK, error) {
 	return allGVKs, nil
 }
 
+func (f *SchemaFetcher) FetchAll() (*Document, error) {
+	paths, err := f.client.Paths()
+	if err != nil {
+		return nil, fmt.Errorf("fetch OpenAPI paths: %w", err)
+	}
+
+	merged := map[string]any{
+		"components": map[string]any{
+			"schemas": map[string]any{},
+		},
+	}
+	mergedSchemas := merged["components"].(map[string]any)["schemas"].(map[string]any)
+
+	for _, gv := range paths {
+		data, err := gv.Schema(runtime.ContentTypeJSON)
+		if err != nil {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			continue
+		}
+		components, _ := raw["components"].(map[string]any)
+		if components == nil {
+			continue
+		}
+		schemas, _ := components["schemas"].(map[string]any)
+		for k, v := range schemas {
+			mergedSchemas[k] = v
+		}
+	}
+
+	data, err := json.Marshal(merged)
+	if err != nil {
+		return nil, fmt.Errorf("marshal merged schemas: %w", err)
+	}
+	return ParseDocument(data)
+}
+
 func resourcePathFromGV(gv schema.GroupVersion) string {
 	if len(gv.Group) == 0 {
 		return fmt.Sprintf("api/%s", gv.Version)

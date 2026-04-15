@@ -115,10 +115,19 @@ func ResolveRef(doc map[string]any, ref string) (map[string]any, error) {
 
 func ResolveSchema(doc map[string]any, schema map[string]any) (map[string]any, error) {
 	ref, ok := schema["$ref"].(string)
-	if !ok {
-		return schema, nil
+	if ok {
+		return ResolveRef(doc, ref)
 	}
-	return ResolveRef(doc, ref)
+
+	if allOf, ok := schema["allOf"].([]any); ok && len(allOf) == 1 {
+		if itemMap, ok := allOf[0].(map[string]any); ok {
+			if ref, ok := itemMap["$ref"].(string); ok {
+				return ResolveRef(doc, ref)
+			}
+		}
+	}
+
+	return schema, nil
 }
 
 func SchemaProperties(doc map[string]any, schema map[string]any) (map[string]any, error) {

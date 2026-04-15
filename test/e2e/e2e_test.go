@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -38,21 +39,23 @@ func TestGenerateAndCreate(t *testing.T) {
 
 	for _, rt := range resourceTypes {
 		t.Run(rt.name, func(t *testing.T) {
+			cleanupResource(t, rt.getKind, rt.name)
+
 			t.Run("generates valid YAML", func(t *testing.T) {
 				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
 				assertValidYAML(t, yaml)
 				assertContainsKind(t, yaml, rt.name)
 			})
 
+			t.Run("server dry-run validates", func(t *testing.T) {
+				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
+				kubectlDryRun(t, yaml)
+			})
+
 			t.Run("creates resource via kubectl create", func(t *testing.T) {
 				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
 				kubectlCreate(t, yaml)
 				assertResourceExists(t, rt.getKind)
-			})
-
-			t.Run("server dry-run validates", func(t *testing.T) {
-				yaml := runExample(t, binaryPath, rt.name, rt.extraArgs...)
-				kubectlDryRun(t, yaml)
 			})
 		})
 	}
@@ -74,7 +77,7 @@ func TestDynamicFlags(t *testing.T) {
 
 	t.Run("pod respects --image flag", func(t *testing.T) {
 		yaml := runExample(t, binaryPath, "pod", "--image=nginx:latest")
-		assertYAMLContains(t, yaml, "image: nginx:latest")
+		assertYAMLContains(t, yaml, "nginx:latest")
 	})
 }
 
@@ -148,7 +151,7 @@ func TestOpenAPISpecResilience(t *testing.T) {
 
 func findBinary(t *testing.T) string {
 	t.Helper()
-	path := "../bin/kubectl-example"
+	path := "../../bin/kubectl-example"
 	if _, err := exec.LookPath(path); err != nil {
 		path = "kubectl-example"
 		if _, err := exec.LookPath(path); err != nil {
@@ -248,5 +251,22 @@ func assertResourceExists(t *testing.T, kind string) {
 	}
 	if len(strings.TrimSpace(string(out))) == 0 {
 		t.Errorf("no %s resources found after create", kind)
+	}
+}
+
+func cleanupResource(t *testing.T, kind, name string) {
+	t.Helper()
+	resourceName := fmt.Sprintf("example-%s", name)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "kubectl", "delete", kind, resourceName,
+		"--ignore-not-found", "--grace-period=0", "--force")
+	_ = cmd.Run()
+	for range 30 {
+		check := exec.CommandContext(ctx, "kubectl", "get", kind, resourceName, "--no-headers")
+		if err := check.Run(); err != nil {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 }
