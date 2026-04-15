@@ -1,0 +1,8 @@
+bin/
+dist/
+/kubectl-example
+*.test
+coverage.out
+.idea/
+.vscode/
+.DS_Store
