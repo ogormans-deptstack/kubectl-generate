@@ -540,9 +540,9 @@ func TestArgoSpecNuances(t *testing.T) {
 		assertYAMLContains(t, yaml, "apiVersion: argoproj.io/")
 	})
 
-	t.Run("CronWorkflow includes schedule", func(t *testing.T) {
+	t.Run("CronWorkflow includes schedules", func(t *testing.T) {
 		yaml := runExample(t, binaryPath, "CronWorkflow")
-		assertYAMLContains(t, yaml, "schedule:")
+		assertYAMLContains(t, yaml, "schedules:")
 	})
 
 	t.Run("WorkflowTemplate includes templates", func(t *testing.T) {
