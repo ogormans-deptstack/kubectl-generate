@@ -10,6 +10,5 @@ coverage.out
 # OpenTofu
 infra/.terraform/
 
-infra/terraform.tfstate
 infra/terraform.tfstate.backup
 infra/terraform.tfvars
