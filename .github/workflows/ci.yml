@@ -46,7 +46,7 @@ jobs:
         run: |
           kubectl apply -f test/fixtures/crontab-crd.yaml
           kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
-          kubectl apply -f https://github.com/argoproj/argo-workflows/releases/download/v4.0.4/install.yaml
+          kubectl apply -k "https://github.com/argoproj/argo-workflows/manifests/base/crds/minimal?ref=v4.0.4"
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.2/cert-manager.crds.yaml
           kubectl wait --for=condition=Established crd --all --timeout=60s
       - run: make build

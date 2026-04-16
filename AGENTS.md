@@ -38,19 +38,17 @@ kubectl plugin that generates example YAML from OpenAPI v3 specs. Go module at `
 
 **Target posting date: week of April 21-25, 2026**
 
-This response needs refinement before posting -- update test counts, CRD coverage, and open questions based on meeting feedback. The meeting already happened (April 16), so rewrite the intro accordingly and remove the "can I join" phrasing. Retarget timeline question from 1.36 to 1.37.
-
 ```markdown
 /reopen
 /remove-lifecycle rotten
 
-Following up from the sig-cli bi-weekly discussion on April 16 -- thanks @ardaguclu for the invite.
+Following up from the sig-cli bi-weekly discussion on April 16 -- thanks @ardaguclu for the invite and the feedback.
 
-Working prototype is at https://github.com/ogormans-deptstack/kubectl-example. It reads the cluster's OpenAPI v3 spec and generates apply-ready YAML for any resource type, including CRDs.
+Working prototype is at https://github.com/ogormans-deptstack/kubectl-example (v0.1.0 released, available via krew). It reads the cluster's OpenAPI v3 spec and generates apply-ready YAML for any resource type, including CRDs.
 
 **How it works:**
 
-The plugin connects to the cluster via the discovery API, fetches the OpenAPI v3 schemas for all group-versions, and walks the schema tree to produce a minimal valid manifest. Required fields are always included, and important optional fields (strategy, ports, resources, selectors) are pulled in based on heuristics. Labels, selectors, and template metadata are wired up consistently.
+The plugin connects via the discovery API, fetches all OpenAPI v3 group-version schemas, and walks the schema tree to produce a minimal valid manifest. Required fields are always included; important optional fields (strategy, ports, resources, selectors) are pulled in via heuristics. Labels, selectors, and template metadata are wired up consistently.
 
 **Demo output:**
 
@@ -86,32 +84,28 @@ spec:
               cpu: "250m"
               memory: "128Mi"
 
-**Current state:**
+**Current state (v0.1.0):**
 
-- 13 core resource types pass server-side dry-run validation
-- CRD support: CronTab, 10 Gateway API CRDs, [UPDATE: add Argo/Crossplane/cert-manager counts]
-- Override flags: --name, --image, --replicas, --set key=value
-- [UPDATE: test counts after CRD expansion]
-- CI green, distributed via krew [UPDATE: once krew manifest lands]
+- 30 core resource types pass server-side dry-run validation (Pod, Deployment, Service, ConfigMap, Secret, Job, CronJob, Ingress, NetworkPolicy, StatefulSet, DaemonSet, PVC, HPA, Role, ClusterRole, RoleBinding, ClusterRoleBinding, ServiceAccount, Namespace, ResourceQuota, LimitRange, PV, PDB, IngressClass, StorageClass, PriorityClass, RuntimeClass, ValidatingWebhookConfiguration, MutatingWebhookConfiguration, CRD)
+- CRD support validated against: CronTab, 10 Gateway API types, 4 Argo Workflows types, 3 cert-manager types, 3 Crossplane types
+- Override flags: `--name`, `--image`, `--replicas`, `--set key=value`
+- ~266 unit tests, e2e suite against kind cluster
+- CI with golangci-lint v2, Go 1.25/1.26 matrix, e2e on kind v1.33.0
+- Distributed via krew (`kubectl krew install example`) and GitHub releases
 
-**Next steps from the meeting discussion:**
+**Next steps toward v1.37 alpha:**
 
-[UPDATE: incorporate actual meeting feedback here]
+1. Updating KEP #5576 to retarget v1.37 with the current prototype as evidence of feasibility
+2. CLI polish: descriptive error messages for invalid types/flags, fuzzy matching suggestions (tracked in v0.1.1 milestone)
+3. Happy to iterate on any design feedback from the meeting or this thread
 
-1. [UPDATE: specific action items from meeting]
-2. Targeting v1.37 for kubectl alpha example -- KEP #5576 needs updating to reflect this
-3. [UPDATE: any design changes agreed at meeting]
-
-cc @soltysh
+cc @soltysh @eddiezane
 ```
 
-**Before posting, update:**
-- [ ] Test counts (unit + e2e) after CRD expansion
-- [ ] CRD coverage list (add Argo, Crossplane, cert-manager if done)
-- [ ] Meeting feedback items as concrete next steps
-- [ ] Krew status (if manifest is ready by then)
-- [ ] Remove placeholder [UPDATE] markers
-- [ ] Verify CI is still green
+**Before posting, verify:**
+- [ ] Krew submission PR merged (check krew-index)
+- [ ] CI green on latest main
+- [ ] Re-read for AI tells -- must read as a human engineer wrote it
 
 ## Release Plan
 
@@ -126,6 +120,6 @@ cc @soltysh
 |-----------|---------------|-----------|--------|
 | CronTab | local fixture | CronTab | done |
 | Gateway API | remote URL (v1.2.1) | HTTPRoute, Gateway, +8 | done |
-| Argo Workflows | remote URL | Workflow, CronWorkflow, WorkflowTemplate | planned |
-| Crossplane | remote URL | Composition, CompositeResourceDefinition, Provider | planned |
-| cert-manager | remote URL | Certificate, Issuer, ClusterIssuer | planned |
+| Argo Workflows | kustomize (minimal CRDs) | Workflow, CronWorkflow, WorkflowTemplate, ClusterWorkflowTemplate | done |
+| Crossplane | remote URL | Composition, CompositeResourceDefinition, EnvironmentConfig | done |
+| cert-manager | remote URL | Certificate, Issuer, ClusterIssuer | done |
