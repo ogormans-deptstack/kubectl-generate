@@ -561,6 +561,10 @@ func (g *OpenAPIGenerator) fixArgoDefaults(spec map[string]any, kind string) {
 		// data requires data.source, memoize requires memoize.cache
 		delete(tmpl, "data")
 		delete(tmpl, "memoize")
+		// Argo templates allow at most one template type; keep container
+		for _, exclusiveType := range []string{"containerSet", "dag", "http", "resource", "script", "steps", "suspend", "plugin"} {
+			delete(tmpl, exclusiveType)
+		}
 		fixArgoPromNames(tmpl)
 	}
 
