@@ -1037,6 +1037,72 @@ func TestAliasResolution(t *testing.T) {
 	}
 }
 
+func TestSupportedTypesWithAliases(t *testing.T) {
+	gen := newTestGenerator(t).(*OpenAPIGenerator)
+
+	t.Run("includes aliases in parentheses for types that have them", func(t *testing.T) {
+		lines := gen.SupportedTypesWithAliases()
+		found := make(map[string]bool)
+		for _, line := range lines {
+			found[line] = true
+		}
+
+		expected := map[string]string{
+			"Deployment":              "deploy",
+			"Service":                 "svc",
+			"ConfigMap":               "cm",
+			"StatefulSet":             "sts",
+			"DaemonSet":               "ds",
+			"PersistentVolumeClaim":   "pvc",
+			"CronJob":                 "cj",
+			"HorizontalPodAutoscaler": "hpa",
+		}
+
+		for kind, alias := range expected {
+			matchFound := false
+			for _, line := range lines {
+				if strings.HasPrefix(line, kind+" (") && strings.Contains(line, alias) {
+					matchFound = true
+					break
+				}
+			}
+			if !matchFound {
+				t.Errorf("expected %s to show alias %q in SupportedTypesWithAliases(), lines: %v", kind, alias, lines)
+			}
+		}
+	})
+
+	t.Run("types without aliases have no parentheses", func(t *testing.T) {
+		lines := gen.SupportedTypesWithAliases()
+		for _, line := range lines {
+			if strings.HasPrefix(line, "CronTab") {
+				if strings.Contains(line, "(") {
+					t.Errorf("CronTab should have no aliases, got: %s", line)
+				}
+			}
+		}
+	})
+
+	t.Run("is sorted alphabetically by kind", func(t *testing.T) {
+		lines := gen.SupportedTypesWithAliases()
+		for i := 1; i < len(lines); i++ {
+			prevKind := strings.SplitN(lines[i-1], " ", 2)[0]
+			currKind := strings.SplitN(lines[i], " ", 2)[0]
+			if prevKind > currKind {
+				t.Errorf("not sorted: %q came before %q", prevKind, currKind)
+			}
+		}
+	})
+
+	t.Run("has same count as SupportedTypes", func(t *testing.T) {
+		plain := gen.SupportedTypes()
+		withAliases := gen.SupportedTypesWithAliases()
+		if len(plain) != len(withAliases) {
+			t.Errorf("SupportedTypes has %d entries but SupportedTypesWithAliases has %d", len(plain), len(withAliases))
+		}
+	})
+}
+
 func TestOverrideEdgeCases(t *testing.T) {
 	gen := newTestGenerator(t)
 

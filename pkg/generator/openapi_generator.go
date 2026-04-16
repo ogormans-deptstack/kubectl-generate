@@ -71,6 +71,31 @@ func (g *OpenAPIGenerator) SupportedTypes() []string {
 	return types
 }
 
+func (g *OpenAPIGenerator) SupportedTypesWithAliases() []string {
+	kinds := g.SupportedTypes()
+	result := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		aliases := aliasesForKind(kind)
+		if len(aliases) == 0 {
+			result = append(result, kind)
+			continue
+		}
+		var shortNames []string
+		kindLen := len(kind)
+		for _, a := range aliases {
+			if len(a) < kindLen {
+				shortNames = append(shortNames, a)
+			}
+		}
+		if len(shortNames) == 0 {
+			result = append(result, kind)
+			continue
+		}
+		result = append(result, kind+" ("+strings.Join(shortNames, ", ")+")")
+	}
+	return result
+}
+
 func (g *OpenAPIGenerator) buildManifest(gvk openapi.GVK, schema map[string]any) map[string]any {
 	manifest := newOrderedMap()
 

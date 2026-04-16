@@ -71,7 +71,7 @@ func runGenerate(args []string, opts *options) error {
 	gen := generator.NewOpenAPIGenerator(doc)
 
 	if opts.list {
-		for _, t := range gen.SupportedTypes() {
+		for _, t := range gen.SupportedTypesWithAliases() {
 			fmt.Println(t)
 		}
 		return nil
