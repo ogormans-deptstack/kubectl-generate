@@ -109,6 +109,7 @@ func (g *OpenAPIGenerator) buildManifest(gvk openapi.GVK, schema map[string]any)
 		g.fixPDBDefaults(spec, gvk.Kind)
 		g.fixPVDefaults(spec, gvk.Kind)
 		g.fixIngressClassDefaults(spec, gvk.Kind)
+		g.fixIssuerDefaults(spec, gvk.Kind)
 		g.fixLimitRangeDefaults(spec, gvk.Kind)
 		g.stripNoisyFields(spec, gvk.Kind)
 		manifest.set("spec", spec)
@@ -506,6 +507,18 @@ func (g *OpenAPIGenerator) fixIngressClassDefaults(spec map[string]any, kind str
 		return
 	}
 	delete(spec, "parameters")
+}
+
+func (g *OpenAPIGenerator) fixIssuerDefaults(spec map[string]any, kind string) {
+	if kind != "Issuer" && kind != "ClusterIssuer" {
+		return
+	}
+	// acme, ca, vault, venafi are mutually exclusive issuer types.
+	// Keep only acme (most common) to avoid required-field validation
+	// errors from the other types (e.g. vault.auth is required).
+	delete(spec, "ca")
+	delete(spec, "vault")
+	delete(spec, "venafi")
 }
 
 func (g *OpenAPIGenerator) fixLimitRangeDefaults(spec map[string]any, kind string) {
