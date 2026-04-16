@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ogormans-deptstack/kubectl-generate/pkg/defaults"
+	"github.com/ogormans-deptstack/kubectl-generate/pkg/fuzzy"
 	"github.com/ogormans-deptstack/kubectl-generate/pkg/openapi"
 )
 
@@ -28,6 +29,10 @@ func NewOpenAPIGenerator(doc *openapi.Document) *OpenAPIGenerator {
 func (g *OpenAPIGenerator) Generate(resourceType string, overrides map[string]string, w io.Writer) error {
 	gvk, ok := g.resolveGVK(resourceType)
 	if !ok {
+		suggestions := fuzzy.Suggest(resourceType, g.SupportedTypes(), 3)
+		if len(suggestions) > 0 {
+			return fmt.Errorf("no example available for %q. Did you mean: %s? Try --list", resourceType, strings.Join(suggestions, ", "))
+		}
 		return fmt.Errorf("no example available for %q. Try --list", resourceType)
 	}
 

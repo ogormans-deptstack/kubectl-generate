@@ -37,6 +37,37 @@ func TestResourceGeneratorInterface(t *testing.T) {
 	})
 }
 
+func TestGenerateUnknownTypeWithSuggestion(t *testing.T) {
+	gen := newTestGenerator(t)
+
+	t.Run("misspelled type includes suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("Deploymnet", nil, &buf)
+		if err == nil {
+			t.Fatal("expected error for unknown type")
+		}
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "Did you mean") {
+			t.Errorf("expected suggestion in error, got: %s", errMsg)
+		}
+		if !strings.Contains(errMsg, "Deployment") {
+			t.Errorf("expected Deployment in suggestions, got: %s", errMsg)
+		}
+	})
+
+	t.Run("completely unknown type has no suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := gen.Generate("zzzzzzzzzzz", nil, &buf)
+		if err == nil {
+			t.Fatal("expected error for unknown type")
+		}
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Did you mean") {
+			t.Errorf("expected no suggestion for garbage input, got: %s", errMsg)
+		}
+	})
+}
+
 func TestGenerateYAML(t *testing.T) {
 	coreTypes := []struct {
 		name             string
