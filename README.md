@@ -1,5 +1,10 @@
 # kubectl-generate
 
+[![CI](https://github.com/ogormans-deptstack/kubectl-generate/actions/workflows/ci.yml/badge.svg)](https://github.com/ogormans-deptstack/kubectl-generate/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ogormans-deptstack/kubectl-generate)](https://goreportcard.com/report/github.com/ogormans-deptstack/kubectl-generate)
+[![GitHub Release](https://img.shields.io/github/v/release/ogormans-deptstack/kubectl-generate)](https://github.com/ogormans-deptstack/kubectl-generate/releases)
+[![License](https://img.shields.io/github/license/ogormans-deptstack/kubectl-generate)](LICENSE)
+
 Generate example Kubernetes YAML manifests from your cluster's OpenAPI v3 spec.
 
 Instead of copy-pasting from documentation or memorizing resource schemas, `kubectl-generate` reads the live OpenAPI spec from your cluster and generates valid, apply-ready YAML for any resource type -- including CRDs.
@@ -258,20 +263,7 @@ For reference, `kubectl debug` took roughly 3 years from KEP to GA (v1.18 alpha 
 
 ## Contributing
 
-Issues and pull requests are welcome.
-
-- Open an issue before submitting large changes to discuss the approach
-- PRs should reference an existing issue when applicable
-- Include tests for new functionality -- the project uses table-driven Go tests with e2e validation against a kind cluster
-- Run `make lint` and `make test-unit` before submitting
-
-### Branch and Release Strategy
-
-The `main` branch is the development branch. Releases are cut from `main` using GoReleaser and distributed via GitHub Releases and krew. Branch protection is enabled -- all PRs require passing CI (lint, unit tests, e2e) before merge.
-
-### Submitting to krew-index
-
-When the plugin reaches a stable release, it will be submitted to [kubernetes-sigs/krew-index](https://github.com/kubernetes-sigs/krew-index) following the [krew plugin developer guide](https://krew.sigs.k8s.io/docs/developer-guide/). The krew manifest will be maintained in this repository.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, testing, and pull request guidelines.
 
 ## Community
 
